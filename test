@@ -1,0 +1,101 @@
+pipeline {
+    agent any
+
+    environment {
+        EC2_HOST = 'YOUR_EC2_PUBLIC_IP'
+        APP_DIR  = '/opt/innews'
+        SSH_CREDENTIALS = 'innews-ec2-ssh-key'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                echo 'Checking out source code from GitHub...'
+                checkout scm
+            }
+        }
+
+        stage('Validate Python') {
+            steps {
+                echo 'Checking Python application...'
+                sh '''
+                    python3 --version
+                    python3 -m compileall -q App.py
+                    test -f requirements.txt
+                    test -f App.py
+                '''
+            }
+        }
+
+        stage('Deploy to EC2') {
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: "${SSH_CREDENTIALS}",
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
+                    sh '''
+                        set -e
+
+                        echo "Preparing EC2 deployment directory..."
+
+                        ssh -i "$SSH_KEY" \
+                            -o StrictHostKeyChecking=accept-new \
+                            "$SSH_USER@$EC2_HOST" \
+                            "mkdir -p $APP_DIR"
+
+                        echo "Copying application files..."
+
+                        rsync -az --delete \
+                            --exclude='.git/' \
+                            --exclude='venv1/' \
+                            --exclude='venv/' \
+                            --exclude='__pycache__/' \
+                            --exclude='uploads/' \
+                            -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=accept-new" \
+                            ./ "$SSH_USER@$EC2_HOST:$APP_DIR/"
+
+                        echo "Installing Python dependencies..."
+
+                        ssh -i "$SSH_KEY" \
+                            -o StrictHostKeyChecking=accept-new \
+                            "$SSH_USER@$EC2_HOST" << EOF
+
+                            set -e
+
+                            cd $APP_DIR
+
+                            if [ ! -d venv ]; then
+                                python3 -m venv venv
+                            fi
+
+                            ./venv/bin/python -m pip install --upgrade pip
+
+                            ./venv/bin/pip install -r requirements.txt
+
+                            sudo systemctl restart innews
+
+                            sudo systemctl is-active innews
+
+                        EOF
+
+                        echo "Deployment completed successfully!"
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'InNews application deployed successfully!'
+        }
+
+        failure {
+            echo 'Deployment failed. Check Jenkins console output.'
+        }
+    }
+}
