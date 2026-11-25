@@ -36,27 +36,27 @@ pipeline {
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Setup Python') {
     steps {
-        echo 'Installing Python dependencies...'
+        echo 'Setting up Python virtual environment...'
 
         sh '''
             set -e
 
-            # Verify required application files
-            test -f requirements.txt           ##fails if dependency file is missing
-            test -f App.py                     ##fails if App.py file is missing
+            echo "Checking Python..."
+            whoami
+            python3 --version
 
-            # Upgrade pip
-            venv/bin/python -m pip install --upgrade pip
+            echo "Removing previous virtual environment..."
+            rm -rf venv
 
-            # Install project dependencies
-            venv/bin/python -m pip install -r requirements.txt
+            echo "Creating virtual environment..."
+            python3 -m venv venv
 
-            # Validate Python syntax
-            venv/bin/python -m compileall -q App.py
+            echo "Verifying pip..."
+            venv/bin/python -m pip --version
 
-            echo "Dependencies installed successfully."
+            echo "Python setup completed successfully."
         '''
     }
 }
