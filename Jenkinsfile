@@ -37,18 +37,29 @@ pipeline {
         }
 
         stage('Install Dependencies') {
-            steps {
-                sh '''
-    test -f requirements.txt
-    test -f App.py
+    steps {
+        echo 'Installing Python dependencies...'
 
-    venv/bin/python -m pip install --upgrade pip
-    venv/bin/python -m pip install -r requirements.txt
+        sh '''
+            set -e
 
-    venv/bin/python -m compileall -q App.py
-'''
-            }
-        }
+            # Verify required application files
+            test -f requirements.txt           ##fails if dependency file is missing
+            test -f App.py                     ##fails if App.py file is missing
+
+            # Upgrade pip
+            venv/bin/python -m pip install --upgrade pip
+
+            # Install project dependencies
+            venv/bin/python -m pip install -r requirements.txt
+
+            # Validate Python syntax
+            venv/bin/python -m compileall -q App.py
+
+            echo "Dependencies installed successfully."
+        '''
+    }
+}
 
         stage('Deploy to EC2') {
             when {
