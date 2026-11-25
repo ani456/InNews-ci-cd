@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -15,7 +16,7 @@ pipeline {
         DEPLOY_USER     = 'deploy'
         APP_DIR         = '/opt/project2/innews'
         APP_VENV        = '/opt/project2/innews/venv'
-        SSH_CREDENTIALS = 'innews-app-ssh'   // Jenkins credential ID
+        SSH_CREDENTIALS = 'innews-app-ssh'
     }
 
     stages {
@@ -29,59 +30,78 @@ pipeline {
 
         stage('Setup Python') {
             steps {
+                echo 'Setting up Python virtual environment...'
+
                 sh '''
+                    set -e
+
+                    whoami
                     python3 --version
+
+                    rm -rf venv
+
                     python3 -m venv venv
+
+                    venv/bin/python -m pip --version
                 '''
             }
         }
 
-        stage('Setup Python') {
-    steps {
-        echo 'Setting up Python virtual environment...'
+        stage('Install Dependencies') {
+            steps {
+                echo 'Installing Python dependencies...'
 
-        sh '''
-            set -e
+                sh '''
+                    set -e
 
-            echo "Checking Python..."
-            whoami
-            python3 --version
+                    test -f requirements.txt
+                    test -f App.py
 
-            echo "Removing previous virtual environment..."
-            rm -rf venv
+                    venv/bin/python -m pip install --upgrade pip
 
-            echo "Creating virtual environment..."
-            python3 -m venv venv
+                    venv/bin/python -m pip install -r requirements.txt
 
-            echo "Verifying pip..."
-            venv/bin/python -m pip --version
+                    venv/bin/python -m compileall -q App.py
 
-            echo "Python setup completed successfully."
-        '''
-    }
-}
+                    echo "Dependencies installed successfully."
+                '''
+            }
+        }
 
         stage('Deploy to EC2') {
             when {
-                expression { env.GIT_BRANCH == 'origin/main' || env.BRANCH_NAME == 'main' }
+                expression {
+                    env.GIT_BRANCH == 'origin/main' ||
+                    env.BRANCH_NAME == 'main'
+                }
             }
+
             steps {
+                echo 'Deploying application to EC2...'
+
                 sshagent(credentials: [env.SSH_CREDENTIALS]) {
                     sh '''
-                        ssh -o StrictHostKeyChecking=yes $DEPLOY_USER@$DEPLOY_HOST \
+                        set -e
+
+                        ssh -o StrictHostKeyChecking=yes \
+                            $DEPLOY_USER@$DEPLOY_HOST \
                             "mkdir -p $APP_DIR"
 
                         rsync -az \
                             --exclude='.git/' \
                             --exclude='venv/' \
+                            --exclude='.venv/' \
                             --exclude='.env' \
                             --exclude='__pycache__/' \
                             -e "ssh -o StrictHostKeyChecking=yes" \
                             ./ $DEPLOY_USER@$DEPLOY_HOST:$APP_DIR/
 
-                        ssh -o StrictHostKeyChecking=yes $DEPLOY_USER@$DEPLOY_HOST \
-                            "test -d $APP_VENV || python3 -m venv $APP_VENV
-                             $APP_VENV/bin/pip install -r $APP_DIR/requirements.txt &&
+                        ssh -o StrictHostKeyChecking=yes \
+                            $DEPLOY_USER@$DEPLOY_HOST \
+                            "set -e
+                             test -d $APP_VENV || python3 -m venv $APP_VENV
+                             $APP_VENV/bin/python -m pip install --upgrade pip
+                             $APP_VENV/bin/python -m pip install -r $APP_DIR/requirements.txt
                              sudo -n systemctl restart innews"
                     '''
                 }
@@ -90,14 +110,24 @@ pipeline {
 
         stage('Health Check') {
             when {
-                expression { env.GIT_BRANCH == 'origin/main' || env.BRANCH_NAME == 'main' }
+                expression {
+                    env.GIT_BRANCH == 'origin/main' ||
+                    env.BRANCH_NAME == 'main'
+                }
             }
+
             steps {
+                echo 'Checking application health...'
+
                 sshagent(credentials: [env.SSH_CREDENTIALS]) {
                     sh '''
-                        ssh -o StrictHostKeyChecking=yes $DEPLOY_USER@$DEPLOY_HOST \
+                        set -e
+
+                        ssh -o StrictHostKeyChecking=yes \
+                            $DEPLOY_USER@$DEPLOY_HOST \
                             "sudo -n systemctl is-active --quiet innews &&
-                             curl --fail --retry 10 --retry-delay 3 --retry-connrefused \
+                             curl --fail --retry 10 --retry-delay 3 \
+                             --retry-connrefused \
                              http://127.0.0.1:8501/_stcore/health"
                     '''
                 }
@@ -106,8 +136,16 @@ pipeline {
     }
 
     post {
-        success { echo 'InNews deployed successfully!' }
-        failure { echo 'Deployment failed. Check console output.' }
-        always  { echo 'Pipeline execution completed.' }
+        success {
+            echo 'InNews deployed successfully!'
+        }
+
+        failure {
+            echo 'Deployment failed. Check console output.'
+        }
+
+        always {
+            echo 'Pipeline execution completed.'
+        }
     }
 }
