@@ -12,7 +12,7 @@ pipeline {
     }
 
     environment {
-        DEPLOY_HOST     = '18.216.31.98'
+        DEPLOY_HOST     = '3.12.83.169'
         DEPLOY_USER     = 'deploy'
         APP_DIR         = '/opt/project2/innews'
         APP_VENV        = '/opt/project2/innews/venv'
